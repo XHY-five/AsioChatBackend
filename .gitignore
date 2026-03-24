@@ -1,0 +1,6 @@
+﻿config.json
+build/
+.vs/
+out/
+*.user
+*.suo

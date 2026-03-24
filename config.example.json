@@ -1,0 +1,30 @@
+﻿{
+  "server": {
+    "port": 5555,
+    "worker_threads": 4,
+    "business_threads": 2
+  },
+  "offline_store": {
+    "backend": "mysql",
+    "file_path": "data/offline_messages.json"
+  },
+  "mysql": {
+    "host": "127.0.0.1",
+    "port": 3306,
+    "user": "root",
+    "password": "your_mysql_password",
+    "database": "asiochat",
+    "mysql_executable": "mysql"
+  },
+  "online_store": {
+    "backend": "redis"
+  },
+  "redis": {
+    "host": "127.0.0.1",
+    "port": 6379,
+    "password": "",
+    "ttl_seconds": 120,
+    "key_prefix": "asiochat:online:",
+    "redis_cli_executable": "redis-cli"
+  }
+}

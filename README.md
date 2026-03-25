@@ -329,7 +329,6 @@ asiochat:online:alice
 - `BlockingQueue`：业务任务排队，避免阻塞网络线程
 - `ThreadPool`：消费阻塞型任务，如离线存储、Redis 刷新、AI 请求
 
-<<<<<<< HEAD
 ## 可分发性说明
 
 当前版本已经去掉了仓库里的数据库地址、密码、Redis 端口、命令行工具绝对路径等硬编码内容。其他人从 Git 克隆仓库后，只需要：
@@ -352,7 +351,6 @@ asiochat:online:alice
 - 压测脚本和性能指标采集
 =======
 ## 注意事项
->>>>>>> 922ef14a22785df22da2d1add891172881a7b95c
 
 - `config.json` 建议本地保留，不要提交到仓库
 - 如果把 `api_key` 直接写进配置文件，注意不要泄露或提交到 Git

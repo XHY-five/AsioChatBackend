@@ -17,7 +17,7 @@
     "mysql_executable": "mysql"
   },
   "online_store": {
-    "backend": "redis"
+    "backend": "none"
   },
   "redis": {
     "host": "127.0.0.1",
@@ -26,5 +26,68 @@
     "ttl_seconds": 120,
     "key_prefix": "asiochat:online:",
     "redis_cli_executable": "redis-cli"
+  },
+  "ai_agents": {
+    "rooms": {
+      "lobby": {
+        "enabled": true,
+        "provider": "local",
+        "bot_name": "lobby-bot",
+        "persona": "你是 lobby 房间里的本地 AI 助手，负责欢迎新人、回答基础问题、帮大家把话题整理清楚。",
+        "welcome_message": "大家好，我是 lobby-bot。这个房间当前使用本地 bot 模式。",
+        "reply_template": "[{room}] {persona} 用户 {user} 刚才说：{message}",
+        "history_messages": 6,
+        "timeout_seconds": 30,
+        "max_tokens": 300,
+        "temperature": 0.7
+      },
+      "openai-room": {
+        "enabled": false,
+        "provider": "openai",
+        "bot_name": "openai-bot",
+        "persona": "你是一个房间 AI 助手，回答简洁、友好、偏协作。",
+        "welcome_message": "openai-bot 已上线。",
+        "model": "your-openai-model",
+        "api_key_env": "OPENAI_API_KEY",
+        "base_url": "https://api.openai.com",
+        "endpoint": "/v1/chat/completions",
+        "curl_executable": "curl",
+        "history_messages": 8,
+        "timeout_seconds": 30,
+        "max_tokens": 400,
+        "temperature": 0.7
+      },
+      "deepseek-room": {
+        "enabled": false,
+        "provider": "deepseek",
+        "bot_name": "deepseek-bot",
+        "persona": "你是一个偏技术支持的房间 AI 助手。",
+        "welcome_message": "deepseek-bot 已上线。",
+        "model": "deepseek-chat",
+        "api_key_env": "DEEPSEEK_API_KEY",
+        "base_url": "https://api.deepseek.com",
+        "endpoint": "/chat/completions",
+        "curl_executable": "curl",
+        "history_messages": 8,
+        "timeout_seconds": 30,
+        "max_tokens": 400,
+        "temperature": 0.7
+      },
+      "ollama-room": {
+        "enabled": false,
+        "provider": "ollama",
+        "bot_name": "ollama-bot",
+        "persona": "你是一个运行在本地 Ollama 上的房间 AI 助手。",
+        "welcome_message": "ollama-bot 已上线。",
+        "model": "your-ollama-model",
+        "base_url": "http://127.0.0.1:11434",
+        "endpoint": "/v1/chat/completions",
+        "curl_executable": "curl",
+        "history_messages": 8,
+        "timeout_seconds": 60,
+        "max_tokens": 400,
+        "temperature": 0.7
+      }
+    }
   }
 }

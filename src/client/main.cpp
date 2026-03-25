@@ -1,4 +1,4 @@
-#include "client/chat_client.hpp"
+﻿#include "client/chat_client.hpp"
 
 #include "common/protocol.hpp"
 
@@ -10,8 +10,28 @@
 #include <string>
 #include <thread>
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
+namespace {
+
+void configure_console_utf8() {
+#ifdef _WIN32
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
+#endif
+}
+
+}  // namespace
+
 int main(int argc, char* argv[]) {
     try {
+        configure_console_utf8();
+
         const std::string host = argc > 1 ? argv[1] : "127.0.0.1";
         const std::string port = argc > 2 ? argv[2] : "5555";
 

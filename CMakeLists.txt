@@ -8,6 +8,20 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(ASIOCHAT_BUILD_CLIENT "Build the chat client" ON)
 set(Boost_USE_STATIC_LIBS OFF)
+set(Boost_NO_BOOST_CMAKE ON)
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Dependencies.cmake")
+    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Dependencies.cmake)
+
+    if(DEFINED BOOST_ROOT_LOCAL AND EXISTS "${BOOST_ROOT_LOCAL}")
+        set(BOOST_ROOT "${BOOST_ROOT_LOCAL}")
+        set(Boost_ROOT "${BOOST_ROOT_LOCAL}")
+        set(Boost_NO_SYSTEM_PATHS ON)
+        set(BOOST_INCLUDEDIR "${BOOST_ROOT_LOCAL}")
+        set(BOOST_LIBRARYDIR "${BOOST_ROOT_LOCAL}/stage/lib")
+        set(ASIOCHAT_BOOST_RUNTIME_DIR "${BOOST_ROOT_LOCAL}/stage/lib")
+    endif()
+endif()
 
 if(DEFINED ENV{CONDA_PREFIX})
     list(PREPEND CMAKE_PREFIX_PATH
@@ -17,14 +31,10 @@ if(DEFINED ENV{CONDA_PREFIX})
     set(ASIOCHAT_BOOST_RUNTIME_DIR "$ENV{CONDA_PREFIX}/Library/bin")
 endif()
 
-find_package(Boost 1.70 CONFIG QUIET COMPONENTS headers system json)
-
-if(NOT Boost_FOUND)
-    if(POLICY CMP0167)
-        cmake_policy(SET CMP0167 OLD)
-    endif()
-    find_package(Boost 1.70 REQUIRED COMPONENTS system json)
+if(POLICY CMP0167)
+    cmake_policy(SET CMP0167 OLD)
 endif()
+find_package(Boost 1.70 REQUIRED COMPONENTS json)
 
 add_library(asiochat_common
     src/common/protocol.cpp
@@ -43,11 +53,11 @@ target_include_directories(asiochat_common
 )
 
 if(TARGET Boost::headers)
-    target_link_libraries(asiochat_common PUBLIC Boost::headers Boost::system Boost::json)
+    target_link_libraries(asiochat_common PUBLIC Boost::headers Boost::json)
 elseif(TARGET Boost::boost)
-    target_link_libraries(asiochat_common PUBLIC Boost::boost Boost::system Boost::json)
+    target_link_libraries(asiochat_common PUBLIC Boost::boost Boost::json)
 else()
-    target_link_libraries(asiochat_common PUBLIC Boost::system Boost::json)
+    target_link_libraries(asiochat_common PUBLIC Boost::json)
 endif()
 
 if(WIN32)
@@ -82,6 +92,7 @@ add_executable(asiochat_server
     src/server/main.cpp
     src/server/chat_server.cpp
     src/server/chat_room.cpp
+    src/server/room_ai_agent_service.cpp
     src/server/chat_session.cpp
 )
 

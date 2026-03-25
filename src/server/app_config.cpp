@@ -48,6 +48,47 @@ unsigned int get_uint(const boost::json::object& obj, std::string_view key, unsi
     return default_value;
 }
 
+bool get_bool(const boost::json::object& obj, std::string_view key, bool default_value) {
+    if (const auto* value = obj.if_contains(key); value != nullptr && value->is_bool()) {
+        return value->as_bool();
+    }
+    return default_value;
+}
+
+double get_double(const boost::json::object& obj, std::string_view key, double default_value) {
+    if (const auto* value = obj.if_contains(key); value != nullptr) {
+        if (value->is_double()) {
+            return value->as_double();
+        }
+        if (value->is_int64()) {
+            return static_cast<double>(value->as_int64());
+        }
+    }
+    return default_value;
+}
+
+AppConfig::RoomAiAgentConfig parse_room_ai_agent_config(const boost::json::object& room_obj,
+                                                        const std::string& default_bot_name) {
+    AppConfig::RoomAiAgentConfig room_config;
+    room_config.enabled = get_bool(room_obj, "enabled", room_config.enabled);
+    room_config.bot_name = get_string(room_obj, "bot_name", default_bot_name);
+    room_config.persona = get_string(room_obj, "persona", "You are a helpful room assistant.");
+    room_config.welcome_message = get_string(room_obj, "welcome_message");
+    room_config.reply_template = get_string(room_obj, "reply_template", "[{room}] {persona} User {user} said: {message}");
+    room_config.provider = get_string(room_obj, "provider", room_config.provider);
+    room_config.model = get_string(room_obj, "model", room_config.model);
+    room_config.api_key = get_string(room_obj, "api_key", room_config.api_key);
+    room_config.api_key_env = get_string(room_obj, "api_key_env", room_config.api_key_env);
+    room_config.base_url = get_string(room_obj, "base_url", room_config.base_url);
+    room_config.endpoint = get_string(room_obj, "endpoint", room_config.endpoint);
+    room_config.curl_executable = get_string(room_obj, "curl_executable", room_config.curl_executable);
+    room_config.timeout_seconds = get_uint(room_obj, "timeout_seconds", room_config.timeout_seconds);
+    room_config.max_tokens = get_uint(room_obj, "max_tokens", room_config.max_tokens);
+    room_config.history_messages = get_uint(room_obj, "history_messages", room_config.history_messages);
+    room_config.temperature = get_double(room_obj, "temperature", room_config.temperature);
+    return room_config;
+}
+
 }  // namespace
 
 AppConfig load_app_config(const std::filesystem::path& config_path) {
@@ -98,6 +139,27 @@ AppConfig load_app_config(const std::filesystem::path& config_path) {
         config.redis.ttl_seconds = get_int(redis_obj, "ttl_seconds", config.redis.ttl_seconds);
         config.redis.key_prefix = get_string(redis_obj, "key_prefix", config.redis.key_prefix);
         config.redis.redis_cli_executable = get_string(redis_obj, "redis_cli_executable", config.redis.redis_cli_executable);
+    }
+
+    if (const auto* ai_agents = root.if_contains("ai_agents"); ai_agents != nullptr && ai_agents->is_object()) {
+        const auto& ai_agents_obj = ai_agents->as_object();
+
+        if (const auto* default_agent = ai_agents_obj.if_contains("default"); default_agent != nullptr && default_agent->is_object()) {
+            config.default_room_ai_agent = parse_room_ai_agent_config(default_agent->as_object(), "room-bot");
+        }
+
+        if (const auto* rooms = ai_agents_obj.if_contains("rooms"); rooms != nullptr && rooms->is_object()) {
+            for (const auto& [room_name, room_value] : rooms->as_object()) {
+                if (!room_value.is_object()) {
+                    continue;
+                }
+
+                const std::string room_name_string(room_name.data(), room_name.size());
+                config.room_ai_agents.emplace(
+                    room_name_string,
+                    parse_room_ai_agent_config(room_value.as_object(), "ai-" + room_name_string));
+            }
+        }
     }
 
     return config;

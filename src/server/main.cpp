@@ -12,8 +12,28 @@
 #include <thread>
 #include <vector>
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
+namespace {
+
+void configure_console_utf8() {
+#ifdef _WIN32
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
+#endif
+}
+
+}  // namespace
+
 int main(int argc, char* argv[]) {
     try {
+        configure_console_utf8();
+
         const std::filesystem::path config_path = argc > 1 ? argv[1] : "config.json";
         const asiochat::server::AppConfig config = asiochat::server::load_app_config(config_path);
         const unsigned short port = config.server_port;
@@ -26,7 +46,7 @@ int main(int argc, char* argv[]) {
 
         auto offline_message_store = asiochat::server::create_offline_message_store(config);
         auto online_status_store = asiochat::server::create_online_status_store(config);
-        asiochat::server::ChatServer server(io_context, port, offline_message_store, online_status_store);
+        asiochat::server::ChatServer server(io_context, config, offline_message_store, online_status_store);
 
         std::vector<std::thread> workers;
         workers.reserve(io_thread_count);
@@ -40,6 +60,7 @@ int main(int argc, char* argv[]) {
                   << ". Config: " << config_path.string()
                   << " offline_store=" << config.offline_store_backend
                   << " online_store=" << config.online_store_backend
+                  << " room_ai_agents=" << config.room_ai_agents.size()
                   << " MySQL: " << config.mysql.host << ':' << config.mysql.port
                   << " database=" << config.mysql.database
                   << " Redis: " << config.redis.host << ':' << config.redis.port << "\n";

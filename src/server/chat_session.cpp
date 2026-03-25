@@ -2,6 +2,7 @@
 
 #include "server/business_executor.hpp"
 #include "server/chat_room.hpp"
+#include "server/room_ai_agent_service.hpp"
 
 #include <boost/asio/dispatch.hpp>
 #include <boost/asio/post.hpp>
@@ -16,18 +17,62 @@ constexpr auto kIdleTimeout = 60s;
 constexpr auto kIdleCheckInterval = 15s;
 constexpr auto kStatusRefreshInterval = 5s;
 
+std::string ascii_lower(std::string_view input) {
+    std::string lowered;
+    lowered.reserve(input.size());
+    for (unsigned char ch : input) {
+        lowered.push_back(static_cast<char>(std::tolower(ch)));
+    }
+    return lowered;
+}
+
+bool is_room_ai_mention_target(std::string_view target) {
+    const std::string lowered = ascii_lower(target);
+    return lowered == "ai" || lowered == u8"小d";
+}
+
+std::string format_room_ai_mention_message(std::string_view target, std::string_view message) {
+    std::string formatted = "@";
+    formatted += std::string(target);
+    if (!message.empty()) {
+        formatted.push_back(' ');
+        formatted += std::string(message);
+    }
+    return formatted;
+}
+
+void deliver_room_ai_welcome(const std::shared_ptr<ChatRoom>& room, std::string_view target_room) {
+    if (!room) {
+        return;
+    }
+
+    const auto welcome = room->ai_agent_welcome_for_room(target_room);
+    if (!welcome.has_value()) {
+        return;
+    }
+
+    room->broadcast_to_room(
+        target_room,
+        asiochat::protocol::make_chat_event(
+            room->ai_agent_name_for_room(target_room).value_or("room-bot"),
+            target_room,
+            *welcome));
+}
+
 }  // namespace
 
 using boost::asio::ip::tcp;
 
 ChatSession::ChatSession(tcp::socket socket,
-                         ChatRoom& room,
+                         std::shared_ptr<ChatRoom> room,
+                         std::shared_ptr<RoomAiAgentService> room_ai_agent_service,
                          OfflineMessageStore& offline_message_store,
                          OnlineStatusStore& online_status_store)
     : socket_(std::move(socket)),
       strand_(boost::asio::make_strand(socket_.get_executor())),
       idle_timer_(socket_.get_executor()),
-      room_(room),
+      room_(std::move(room)),
+      room_ai_agent_service_(std::move(room_ai_agent_service)),
       offline_message_store_(offline_message_store),
       online_status_store_(online_status_store),
       last_activity_(std::chrono::steady_clock::now()),
@@ -61,20 +106,20 @@ void ChatSession::stop(bool graceful) {
         stopped_ = true;
         idle_timer_.cancel();
 
-        if (joined_) {
+        if (joined_ && room_) {
             mark_offline_async(user_name_);
 
             std::string departed_name;
             std::string departed_room;
-            room_.leave(this, departed_name, departed_room);
+            room_->leave(this, departed_name, departed_room);
             if (!departed_name.empty() && !departed_room.empty()) {
-                room_.broadcast_to_room(
+                room_->broadcast_to_room(
                     departed_room,
                     asiochat::protocol::make_presence_event(
                         departed_name,
                         departed_room,
                         "left",
-                        room_.online_count(departed_room)));
+                        room_->online_count(departed_room)));
             }
         }
 
@@ -167,10 +212,15 @@ void ChatSession::handle_command(const asiochat::protocol::Command& command) {
             deliver(asiochat::protocol::make_system_event("Username cannot be empty."));
             return;
         }
+        if (!room_) {
+            deliver(asiochat::protocol::make_system_event("Room service is unavailable."));
+            stop();
+            return;
+        }
 
         std::string assigned_name;
         std::string assigned_room;
-        const bool kept_original_name = room_.login(shared_from_this(), command.user, assigned_name, assigned_room);
+        const bool kept_original_name = room_->login(shared_from_this(), command.user, assigned_name, assigned_room);
         user_name_ = assigned_name;
         current_room_ = assigned_room;
         joined_ = true;
@@ -184,10 +234,11 @@ void ChatSession::handle_command(const asiochat::protocol::Command& command) {
                 "Requested username was occupied. You are logged in as " + user_name_ + " in room " + current_room_ + "."));
         }
 
-        room_.broadcast_to_room(
+        room_->broadcast_to_room(
             current_room_,
-            asiochat::protocol::make_presence_event(user_name_, current_room_, "joined", room_.online_count(current_room_)));
-        deliver(asiochat::protocol::make_users_event(current_room_, room_.room_users(current_room_)));
+            asiochat::protocol::make_presence_event(user_name_, current_room_, "joined", room_->online_count(current_room_)));
+        deliver(asiochat::protocol::make_users_event(current_room_, room_->room_users(current_room_)));
+        deliver_room_ai_welcome(room_, current_room_);
         load_offline_messages_async();
         return;
     }
@@ -200,10 +251,15 @@ void ChatSession::handle_command(const asiochat::protocol::Command& command) {
             deliver(asiochat::protocol::make_system_event("Room name cannot be empty."));
             return;
         }
+        if (!room_) {
+            deliver(asiochat::protocol::make_system_event("Room service is unavailable."));
+            stop();
+            return;
+        }
 
         std::string previous_room;
         std::string assigned_room;
-        if (!room_.change_room(this, command.room, previous_room, assigned_room)) {
+        if (!room_->change_room(this, command.room, previous_room, assigned_room)) {
             deliver(asiochat::protocol::make_system_event("Unable to switch rooms right now."));
             return;
         }
@@ -212,16 +268,17 @@ void ChatSession::handle_command(const asiochat::protocol::Command& command) {
             return;
         }
 
-        room_.broadcast_to_room(
+        room_->broadcast_to_room(
             previous_room,
-            asiochat::protocol::make_presence_event(user_name_, previous_room, "left", room_.online_count(previous_room)),
+            asiochat::protocol::make_presence_event(user_name_, previous_room, "left", room_->online_count(previous_room)),
             this);
         current_room_ = assigned_room;
         deliver(asiochat::protocol::make_system_event("Switched to room " + current_room_ + "."));
-        room_.broadcast_to_room(
+        room_->broadcast_to_room(
             current_room_,
-            asiochat::protocol::make_presence_event(user_name_, current_room_, "joined", room_.online_count(current_room_)));
-        deliver(asiochat::protocol::make_users_event(current_room_, room_.room_users(current_room_)));
+            asiochat::protocol::make_presence_event(user_name_, current_room_, "joined", room_->online_count(current_room_)));
+        deliver(asiochat::protocol::make_users_event(current_room_, room_->room_users(current_room_)));
+        deliver_room_ai_welcome(room_, current_room_);
         return;
     }
     case asiochat::protocol::CommandType::message: {
@@ -229,11 +286,11 @@ void ChatSession::handle_command(const asiochat::protocol::Command& command) {
             deliver(asiochat::protocol::make_system_event("Please log in first with /login <name>."));
             return;
         }
-        if (command.message.empty()) {
+        if (command.message.empty() || !room_) {
             return;
         }
 
-        room_.broadcast_to_room(
+        room_->broadcast_to_room(
             current_room_,
             asiochat::protocol::make_chat_event(user_name_, current_room_, command.message));
         return;
@@ -247,9 +304,25 @@ void ChatSession::handle_command(const asiochat::protocol::Command& command) {
             deliver(asiochat::protocol::make_system_event("Usage: /pm <user> <message>."));
             return;
         }
+        if (!room_) {
+            deliver(asiochat::protocol::make_system_event("Room service is unavailable."));
+            stop();
+            return;
+        }
+
+        if (room_->is_ai_agent_room_enabled(current_room_) && is_room_ai_mention_target(command.target)) {
+            room_->broadcast_to_room(
+                current_room_,
+                asiochat::protocol::make_chat_event(
+                    user_name_,
+                    current_room_,
+                    format_room_ai_mention_message(command.target, command.message)));
+            request_room_ai_reply(current_room_, user_name_, command.message);
+            return;
+        }
 
         const std::string event = asiochat::protocol::make_private_event(user_name_, command.target, command.message);
-        if (!room_.deliver_private(command.target, event)) {
+        if (!room_->deliver_private(command.target, event)) {
             store_offline_message_async({user_name_, command.target, command.message});
             deliver(asiochat::protocol::make_system_event(
                 "Target user is offline. The private message has been queued for later delivery."));
@@ -266,11 +339,15 @@ void ChatSession::handle_command(const asiochat::protocol::Command& command) {
             deliver(asiochat::protocol::make_system_event("Please log in first with /login <name>."));
             return;
         }
-        deliver(asiochat::protocol::make_users_event(current_room_, room_.room_users(current_room_)));
+        if (room_) {
+            deliver(asiochat::protocol::make_users_event(current_room_, room_->room_users(current_room_)));
+        }
         return;
     }
     case asiochat::protocol::CommandType::list_rooms: {
-        deliver(asiochat::protocol::make_rooms_event(room_.room_names()));
+        if (room_) {
+            deliver(asiochat::protocol::make_rooms_event(room_->room_names()));
+        }
         return;
     }
     case asiochat::protocol::CommandType::heartbeat:
@@ -437,4 +514,45 @@ void ChatSession::store_offline_message_async(OfflineMessage message) {
     });
 }
 
+void ChatSession::request_room_ai_reply(std::string room, std::string from_user, std::string message) {
+    if (!room_ai_agent_service_ || !room_) {
+        return;
+    }
+
+    auto weak_self = weak_from_this();
+    auto chat_room = room_;
+    room_ai_agent_service_->request_reply(
+        std::move(room),
+        std::move(from_user),
+        std::move(message),
+        [weak_self, chat_room = std::move(chat_room)](std::string target_room, std::string bot_name, std::string reply_message) mutable {
+            if (reply_message.empty()) {
+                return;
+            }
+
+            if (auto self = weak_self.lock()) {
+                boost::asio::post(
+                    self->strand_,
+                    [self, chat_room = std::move(chat_room), target_room = std::move(target_room), bot_name = std::move(bot_name),
+                     reply_message = std::move(reply_message)]() mutable {
+                        if (self->stopped_ || !chat_room) {
+                            return;
+                        }
+
+                        try {
+                            chat_room->broadcast_to_room(
+                                target_room,
+                                asiochat::protocol::make_chat_event(bot_name, target_room, reply_message));
+                        } catch (...) {
+                            if (!self->stopped_) {
+                                self->deliver(asiochat::protocol::make_system_event("AI reply was dropped because it could not be serialized."));
+                            }
+                        }
+                    });
+            }
+        });
+}
+
 }  // namespace asiochat::server
+
+

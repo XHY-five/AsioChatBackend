@@ -9,6 +9,7 @@
 #include <array>
 #include <chrono>
 #include <deque>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -16,11 +17,13 @@
 namespace asiochat::server {
 
 class ChatRoom;
+class RoomAiAgentService;
 
 class ChatSession : public std::enable_shared_from_this<ChatSession> {
 public:
     ChatSession(boost::asio::ip::tcp::socket socket,
-                ChatRoom& room,
+                std::shared_ptr<ChatRoom> room,
+                std::shared_ptr<RoomAiAgentService> room_ai_agent_service,
                 OfflineMessageStore& offline_message_store,
                 OnlineStatusStore& online_status_store);
 
@@ -44,11 +47,13 @@ private:
     void refresh_online_status_async();
     void load_offline_messages_async();
     void store_offline_message_async(OfflineMessage message);
+    void request_room_ai_reply(std::string room, std::string from_user, std::string message);
 
     boost::asio::ip::tcp::socket socket_;
     boost::asio::strand<boost::asio::any_io_executor> strand_;
     boost::asio::steady_timer idle_timer_;
-    ChatRoom& room_;
+    std::shared_ptr<ChatRoom> room_;
+    std::shared_ptr<RoomAiAgentService> room_ai_agent_service_;
     OfflineMessageStore& offline_message_store_;
     OnlineStatusStore& online_status_store_;
     std::array<unsigned char, asiochat::protocol::kHeaderLength> read_header_buffer_{};

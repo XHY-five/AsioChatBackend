@@ -1,6 +1,8 @@
 ﻿#include "server/thread_pool.hpp"
 
 #include <algorithm>
+#include <exception>
+#include <iostream>
 #include <stdexcept>
 
 namespace asiochat::server {
@@ -26,8 +28,16 @@ void ThreadPool::start(unsigned int thread_count) {
         workers_.emplace_back([this]() {
             Task task;
             while (queue_.pop(task)) {
-                if (task) {
+                if (!task) {
+                    continue;
+                }
+
+                try {
                     task();
+                } catch (const std::exception& ex) {
+                    std::cerr << "[thread_pool] background task failed: " << ex.what() << '\n';
+                } catch (...) {
+                    std::cerr << "[thread_pool] background task failed with unknown exception.\n";
                 }
             }
         });

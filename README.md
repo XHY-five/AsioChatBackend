@@ -13,7 +13,6 @@
 - 引入 `BlockingQueue + ThreadPool` 处理阻塞型业务任务，避免数据库和 Redis 操作阻塞网络线程
 - 使用 `config.json` 管理数据库、Redis、端口和运行时命令路径
 - 在存储层中引入 `Strategy + Factory + Null Object + Singleton` 模式，方便按配置切换实现
-- 适合写进 `C++ 后端开发实习` 简历
 
 ## 项目结构
 

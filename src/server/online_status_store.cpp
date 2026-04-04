@@ -1,68 +1,123 @@
-﻿#include "server/online_status_store.hpp"
+#include "asiochat/server/online_status_store.hpp"
+#include "asiochat/server/redis_connection_pool.hpp"
 
-#include <cstdio>
-#include <sstream>
+#include <hiredis.h>
 #include <stdexcept>
-#include <vector>
 
-namespace asiochat::server {
-
-void NullOnlineStatusStore::mark_online(std::string_view /*user*/) {}
-
-void NullOnlineStatusStore::refresh(std::string_view /*user*/) {}
-
-void NullOnlineStatusStore::mark_offline(std::string_view /*user*/) {}
-
-RedisOnlineStatusStore::RedisOnlineStatusStore(RedisConfig config)
-    : config_(std::move(config)) {}
-
-void RedisOnlineStatusStore::mark_online(std::string_view user) {
-    run_redis({"SET", key_for(user), "1", "EX", std::to_string(config_.ttl_seconds)});
-}
-
-void RedisOnlineStatusStore::refresh(std::string_view user) {
-    run_redis({"EXPIRE", key_for(user), std::to_string(config_.ttl_seconds)});
-}
-
-void RedisOnlineStatusStore::mark_offline(std::string_view user) {
-    run_redis({"DEL", key_for(user)});
-}
-
-std::string RedisOnlineStatusStore::key_for(std::string_view user) const {
-    return config_.key_prefix + std::string(user);
-}
-
-void RedisOnlineStatusStore::run_redis(const std::vector<std::string>& args) const {
-    std::ostringstream command;
-    command << "powershell -NoProfile -Command \"& '" << config_.redis_cli_executable << "'"
-            << " -h " << config_.host
-            << " -p " << config_.port;
-
-    if (!config_.password.empty()) {
-        command << " -a " << config_.password;
+namespace asiochat::server
+{
+    void MemoryOnlineStatusStore::mark_online(std::string_view user)
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        online_users_[std::string(user)] = true;
     }
 
-    for (const auto& arg : args) {
-        command << ' ' << arg;
+    void MemoryOnlineStatusStore::refresh(std::string_view user)
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        online_users_[std::string(user)] = true;
     }
 
-    command << "\" 2>&1";
-
-    FILE* pipe = _popen(command.str().c_str(), "r");
-    if (pipe == nullptr) {
-        return;
+    void MemoryOnlineStatusStore::mark_offline(std::string_view user)
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        online_users_.erase(std::string(user));
     }
 
-    std::string output;
-    char buffer[256];
-    while (std::fgets(buffer, sizeof(buffer), pipe) != nullptr) {
-        output += buffer;
+    bool MemoryOnlineStatusStore::is_online(std::string_view user) const
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        const auto it = online_users_.find(std::string(user));
+        return it != online_users_.end() && it->second;
+    }
+    //redis
+    RedisOnlineStatusStore::RedisOnlineStatusStore(const RedisConfig &config)
+        : config_(config),
+          pool_(std::make_unique<RedisConnectionPool>(config, 4))
+    {
     }
 
-    const int exit_code = _pclose(pipe);
-    if (exit_code != 0) {
-        throw std::runtime_error("redis-cli command failed: " + output);
+    RedisOnlineStatusStore::~RedisOnlineStatusStore() = default;
+
+    std::string RedisOnlineStatusStore::make_online_key(std::string_view user)
+    {
+        return "online:user:" + std::string(user);
+    }
+
+    void RedisOnlineStatusStore::mark_online(std::string_view user)
+    {
+        redisContext *connection = pool_->acquire();
+        if (connection == nullptr)
+        {
+            throw std::runtime_error("Failed to acquire Redis connection.");
+        }
+
+        const std::string key = make_online_key(user);
+        redisReply *reply = static_cast<redisReply *>(
+            redisCommand(connection, "SET %s 1 EX %d", key.c_str(), config_.online_ttl_seconds));
+
+        if (reply == nullptr || reply->type == REDIS_REPLY_ERROR)
+        {
+            if (reply != nullptr)
+            {
+                freeReplyObject(reply);
+            }
+            pool_->release(connection);
+            throw std::runtime_error("Redis SET EX failed.");
+        }
+
+        freeReplyObject(reply);
+        pool_->release(connection);
+    }
+
+    void RedisOnlineStatusStore::refresh(std::string_view user)
+    {
+        mark_online(user);
+    }
+
+    void RedisOnlineStatusStore::mark_offline(std::string_view user)
+    {
+        redisContext *connection = pool_->acquire();
+        if (connection == nullptr)
+        {
+            throw std::runtime_error("Failed to acquire Redis connection.");
+        }
+
+        const std::string key = make_online_key(user);
+        redisReply *reply = static_cast<redisReply *>(
+            redisCommand(connection, "DEL %s", key.c_str()));
+
+        if (reply != nullptr)
+        {
+            freeReplyObject(reply);
+        }
+
+        pool_->release(connection);
+    }
+
+    bool RedisOnlineStatusStore::is_online(std::string_view user) const
+    {
+        redisContext *connection = pool_->acquire();
+        if (connection == nullptr)
+        {
+            return false;
+        }
+
+        const std::string key = make_online_key(user);
+        redisReply *reply = static_cast<redisReply *>(
+            redisCommand(connection, "EXISTS %s", key.c_str()));
+
+        const bool online =
+            reply != nullptr &&
+            reply->type == REDIS_REPLY_INTEGER &&
+            reply->integer > 0;
+
+        if (reply != nullptr)
+        {
+            freeReplyObject(reply);
+        }
+
+        pool_->release(connection);
+        return online;
     }
 }
-
-}  // namespace asiochat::server

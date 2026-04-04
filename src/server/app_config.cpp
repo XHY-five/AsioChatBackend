@@ -1,168 +1,300 @@
-﻿#include "server/app_config.hpp"
-
-#include <boost/json.hpp>
-
+#include "asiochat/server/app_config.hpp"
 #include <fstream>
 #include <sstream>
-#include <stdexcept>
 
-namespace asiochat::server {
-namespace {
+namespace asiochat::server
+{
+    namespace
+    {
+        std::string trim(const std::string &text)
+        {
+            const auto first = text.find_first_not_of(" \t\r\n");
+            if (first == std::string::npos)
+            {
+                return {};
+            }
 
-std::string read_file(const std::filesystem::path& path) {
-    std::ifstream input(path, std::ios::binary);
-    if (!input) {
-        throw std::runtime_error("Failed to open config file: " + path.string());
-    }
-
-    std::ostringstream buffer;
-    buffer << input.rdbuf();
-    std::string content = buffer.str();
-    if (content.size() >= 3 &&
-        static_cast<unsigned char>(content[0]) == 0xEF &&
-        static_cast<unsigned char>(content[1]) == 0xBB &&
-        static_cast<unsigned char>(content[2]) == 0xBF) {
-        content.erase(0, 3);
-    }
-    return content;
-}
-
-std::string get_string(const boost::json::object& obj, std::string_view key, std::string default_value = {}) {
-    if (const auto* value = obj.if_contains(key); value != nullptr && value->is_string()) {
-        return std::string(value->as_string().c_str());
-    }
-    return default_value;
-}
-
-int get_int(const boost::json::object& obj, std::string_view key, int default_value) {
-    if (const auto* value = obj.if_contains(key); value != nullptr && value->is_int64()) {
-        return static_cast<int>(value->as_int64());
-    }
-    return default_value;
-}
-
-unsigned int get_uint(const boost::json::object& obj, std::string_view key, unsigned int default_value) {
-    if (const auto* value = obj.if_contains(key); value != nullptr && value->is_int64()) {
-        return static_cast<unsigned int>(value->as_int64());
-    }
-    return default_value;
-}
-
-bool get_bool(const boost::json::object& obj, std::string_view key, bool default_value) {
-    if (const auto* value = obj.if_contains(key); value != nullptr && value->is_bool()) {
-        return value->as_bool();
-    }
-    return default_value;
-}
-
-double get_double(const boost::json::object& obj, std::string_view key, double default_value) {
-    if (const auto* value = obj.if_contains(key); value != nullptr) {
-        if (value->is_double()) {
-            return value->as_double();
-        }
-        if (value->is_int64()) {
-            return static_cast<double>(value->as_int64());
+            const auto last = text.find_last_not_of(" \t\r\n");
+            return text.substr(first, last - first + 1);
         }
     }
-    return default_value;
-}
 
-AppConfig::RoomAiAgentConfig parse_room_ai_agent_config(const boost::json::object& room_obj,
-                                                        const std::string& default_bot_name) {
-    AppConfig::RoomAiAgentConfig room_config;
-    room_config.enabled = get_bool(room_obj, "enabled", room_config.enabled);
-    room_config.bot_name = get_string(room_obj, "bot_name", default_bot_name);
-    room_config.persona = get_string(room_obj, "persona", "You are a helpful room assistant.");
-    room_config.welcome_message = get_string(room_obj, "welcome_message");
-    room_config.reply_template = get_string(room_obj, "reply_template", "[{room}] {persona} User {user} said: {message}");
-    room_config.provider = get_string(room_obj, "provider", room_config.provider);
-    room_config.model = get_string(room_obj, "model", room_config.model);
-    room_config.api_key = get_string(room_obj, "api_key", room_config.api_key);
-    room_config.api_key_env = get_string(room_obj, "api_key_env", room_config.api_key_env);
-    room_config.base_url = get_string(room_obj, "base_url", room_config.base_url);
-    room_config.endpoint = get_string(room_obj, "endpoint", room_config.endpoint);
-    room_config.curl_executable = get_string(room_obj, "curl_executable", room_config.curl_executable);
-    room_config.timeout_seconds = get_uint(room_obj, "timeout_seconds", room_config.timeout_seconds);
-    room_config.max_tokens = get_uint(room_obj, "max_tokens", room_config.max_tokens);
-    room_config.history_messages = get_uint(room_obj, "history_messages", room_config.history_messages);
-    room_config.temperature = get_double(room_obj, "temperature", room_config.temperature);
-    return room_config;
-}
+    bool AppConfig::load(const std::string &file_path)
+    {
+        values_.clear();
 
-}  // namespace
+        std::ifstream input(file_path);
 
-AppConfig load_app_config(const std::filesystem::path& config_path) {
-    const std::string content = read_file(config_path);
-
-    boost::system::error_code ec;
-    boost::json::value parsed = boost::json::parse(content, ec);
-    if (ec || !parsed.is_object()) {
-        throw std::runtime_error("Invalid config file format: " + config_path.string());
-    }
-
-    const auto& root = parsed.as_object();
-    AppConfig config;
-
-    if (const auto* server = root.if_contains("server"); server != nullptr && server->is_object()) {
-        const auto& server_obj = server->as_object();
-        config.server_port = static_cast<unsigned short>(get_int(server_obj, "port", config.server_port));
-        config.worker_threads = get_uint(server_obj, "worker_threads", config.worker_threads);
-        config.business_threads = get_uint(server_obj, "business_threads", config.business_threads);
-    }
-
-    if (const auto* offline_store = root.if_contains("offline_store"); offline_store != nullptr && offline_store->is_object()) {
-        const auto& offline_store_obj = offline_store->as_object();
-        config.offline_store_backend = get_string(offline_store_obj, "backend", config.offline_store_backend);
-        config.offline_file_path = get_string(offline_store_obj, "file_path", config.offline_file_path.string());
-    }
-
-    if (const auto* mysql = root.if_contains("mysql"); mysql != nullptr && mysql->is_object()) {
-        const auto& mysql_obj = mysql->as_object();
-        config.mysql.host = get_string(mysql_obj, "host", config.mysql.host);
-        config.mysql.port = static_cast<unsigned int>(get_int(mysql_obj, "port", static_cast<int>(config.mysql.port)));
-        config.mysql.user = get_string(mysql_obj, "user", config.mysql.user);
-        config.mysql.password = get_string(mysql_obj, "password", config.mysql.password);
-        config.mysql.database = get_string(mysql_obj, "database", config.mysql.database);
-        config.mysql.mysql_executable = get_string(mysql_obj, "mysql_executable", config.mysql.mysql_executable);
-    }
-
-    if (const auto* online_store = root.if_contains("online_store"); online_store != nullptr && online_store->is_object()) {
-        const auto& online_store_obj = online_store->as_object();
-        config.online_store_backend = get_string(online_store_obj, "backend", config.online_store_backend);
-    }
-
-    if (const auto* redis = root.if_contains("redis"); redis != nullptr && redis->is_object()) {
-        const auto& redis_obj = redis->as_object();
-        config.redis.host = get_string(redis_obj, "host", config.redis.host);
-        config.redis.port = get_int(redis_obj, "port", config.redis.port);
-        config.redis.password = get_string(redis_obj, "password", config.redis.password);
-        config.redis.ttl_seconds = get_int(redis_obj, "ttl_seconds", config.redis.ttl_seconds);
-        config.redis.key_prefix = get_string(redis_obj, "key_prefix", config.redis.key_prefix);
-        config.redis.redis_cli_executable = get_string(redis_obj, "redis_cli_executable", config.redis.redis_cli_executable);
-    }
-
-    if (const auto* ai_agents = root.if_contains("ai_agents"); ai_agents != nullptr && ai_agents->is_object()) {
-        const auto& ai_agents_obj = ai_agents->as_object();
-
-        if (const auto* default_agent = ai_agents_obj.if_contains("default"); default_agent != nullptr && default_agent->is_object()) {
-            config.default_room_ai_agent = parse_room_ai_agent_config(default_agent->as_object(), "room-bot");
+        if (!input.is_open())
+        {
+            return false;
         }
 
-        if (const auto* rooms = ai_agents_obj.if_contains("rooms"); rooms != nullptr && rooms->is_object()) {
-            for (const auto& [room_name, room_value] : rooms->as_object()) {
-                if (!room_value.is_object()) {
-                    continue;
-                }
+        std::string line;
+        while (std::getline(input, line))
+        {
+            line = trim(line);
 
-                const std::string room_name_string(room_name.data(), room_name.size());
-                config.room_ai_agents.emplace(
-                    room_name_string,
-                    parse_room_ai_agent_config(room_value.as_object(), "ai-" + room_name_string));
+            if (line.empty() || line[0] == '#')
+            {
+                continue;
+            }
+
+            const auto pos = line.find('=');
+            if (pos == std::string::npos)
+            {
+                continue;
+            }
+
+            const std::string key = trim(line.substr(0, pos));
+            const std::string value = trim(line.substr(pos + 1));
+
+            if (!key.empty())
+            {
+                values_[key] = value;
             }
         }
+
+        const auto host_it = values_.find("mysql.host");
+        if (host_it != values_.end())
+        {
+            mysql_config_.host = host_it->second;
+        }
+
+        const auto port_it = values_.find("mysql.port");
+        if (port_it != values_.end())
+        {
+            mysql_config_.port = static_cast<unsigned int>(std::stoul(port_it->second));
+        }
+
+        const auto user_it = values_.find("mysql.user");
+        if (user_it != values_.end())
+        {
+            mysql_config_.user = user_it->second;
+        }
+
+        const auto password_it = values_.find("mysql.password");
+        if (password_it != values_.end())
+        {
+            mysql_config_.password = password_it->second;
+        }
+
+        const auto database_it = values_.find("mysql.database");
+        if (database_it != values_.end())
+        {
+            mysql_config_.database = database_it->second;
+        }
+
+        auto load_room_ai_config = [this](const string &prefix, RoomAiAgentConfig &cfg)
+        {
+            auto read_string = [this, &prefix](const string &key, string &out)
+            {
+                const auto it = values_.find(prefix + key);
+                if (it != values_.end())
+                    out = it->second;
+            };
+            auto read_bool = [this, &prefix](const std::string &key, bool &out)
+            {
+                const auto it = values_.find(prefix + key);
+                if (it != values_.end())
+                    out = (it->second == "true" || it->second == "1");
+            };
+            auto read_size = [this, &prefix](const std::string &key, std::size_t &out)
+            {
+                const auto it = values_.find(prefix + key);
+                if (it != values_.end())
+                    out = static_cast<std::size_t>(std::stoul(it->second));
+            };
+            auto read_double = [this, &prefix](const std::string &key, double &out)
+            {
+                const auto it = values_.find(prefix + key);
+                if (it != values_.end())
+                    out = std::stod(it->second);
+            };
+            auto read_int = [this, &prefix](const std::string &key, int &out)
+            {
+                const auto it = values_.find(prefix + key);
+                if (it != values_.end())
+                    out = std::stoi(it->second);
+            };
+
+            read_bool("enabled", cfg.enabled);
+            read_string("bot_name", cfg.bot_name);
+            read_string("welcome_message", cfg.welcome_message);
+            read_string("provider", cfg.provider);
+            read_string("model", cfg.model);
+            read_string("base_url", cfg.base_url);
+            read_string("endpoint", cfg.endpoint);
+            read_string("api_key", cfg.api_key);
+            read_string("api_key_env", cfg.api_key_env);
+            read_string("persona", cfg.persona);
+            read_string("reply_template", cfg.reply_template);
+            read_size("history_messages", cfg.history_messages);
+            read_double("temperature", cfg.temperature);
+            read_int("max_tokens", cfg.max_tokens);
+            read_int("timeout_seconds", cfg.timeout_seconds);
+            read_string("curl_executable", cfg.curl_executable);
+        };
+
+        RoomAiAgentConfig default_cfg;
+        load_room_ai_config("ai_agents.default.", default_cfg);
+        if (default_cfg.enabled)
+        {
+            default_room_ai_agent = default_cfg;
+        }
+
+        room_ai_agents.clear();
+        for (const auto &[key, value] : values_)
+        {
+            const std::string prefix = "ai_agents.rooms.";
+            if (key.rfind(prefix, 0) != 0)
+                continue;
+
+            const auto rest = key.substr(prefix.size());
+            const auto dot = rest.find('.');
+            if (dot == std::string::npos)
+                continue;
+
+            const std::string room_name = rest.substr(0, dot);
+            RoomAiAgentConfig cfg;
+            if (const auto inherited = default_room_ai_agent; inherited.has_value())
+            {
+                cfg = *inherited;
+            }
+            load_room_ai_config(prefix + room_name + ".", cfg);
+            if (cfg.enabled)
+            {
+                room_ai_agents[room_name] = cfg;
+            }
+        }
+
+        if (const auto it = values_.find("redis.host"); it != values_.end())
+        {
+            redis_config_.host = it->second;
+        }
+        if (const auto it = values_.find("redis.port"); it != values_.end())
+        {
+            redis_config_.port = std::stoi(it->second);
+        }
+        if (const auto it = values_.find("redis.password"); it != values_.end())
+        {
+            redis_config_.password = it->second;
+        }
+        if (const auto it = values_.find("redis.db"); it != values_.end())
+        {
+            redis_config_.db = std::stoi(it->second);
+        }
+        if (const auto it = values_.find("redis.online_ttl_seconds"); it != values_.end())
+        {
+            redis_config_.online_ttl_seconds = std::stoi(it->second);
+        }
+        return true;
     }
 
-    return config;
-}
+    std::uint16_t AppConfig::server_port() const
+    {
+        const auto it = values_.find("server.port");
+        if (it == values_.end())
+        {
+            return 5555;
+        }
 
-}  // namespace asiochat::server
+        return static_cast<std::uint16_t>(std::stoi(it->second));
+    }
+
+    unsigned int AppConfig::business_threads() const
+    {
+        const auto it = values_.find("executor.business_threads");
+        if (it == values_.end())
+        {
+            return 2;
+        }
+
+        return static_cast<unsigned int>(std::stoul(it->second));
+    }
+
+    int AppConfig::idle_timeout_seconds() const
+    {
+        const auto it = values_.find("server.idle_timeout_seconds");
+        if (it == values_.end())
+        {
+            return 120;
+        }
+
+        return std::stoi(it->second);
+    }
+
+    int AppConfig::idle_check_interval_seconds() const
+    {
+        const auto it = values_.find("server.idle_check_interval_seconds");
+        if (it == values_.end())
+        {
+            return 10;
+        }
+
+        return std::stoi(it->second);
+    }
+
+    const std::string &AppConfig::offline_message_file() const
+    {
+        static const std::string kDefaultFile = "offline_messages.txt";
+
+        const auto it = values_.find("storage.offline_message_file");
+        if (it == values_.end())
+        {
+            return kDefaultFile;
+        }
+
+        return it->second;
+    }
+
+    const std::string &AppConfig::offline_message_store_type() const
+    {
+        static const std::string kDefaultType = "file";
+
+        const auto it = values_.find("storage.offline_message_store");
+
+        if (it == values_.end())
+        {
+            return kDefaultType;
+        }
+
+        return it->second;
+    }
+
+    const std::string &AppConfig::online_status_store_type() const
+    {
+        static const std::string kDefaultType = "memory";
+
+        const auto it = values_.find("storage.online_status_store");
+        if (it == values_.end())
+        {
+            return kDefaultType;
+        }
+
+        return it->second;
+    }
+
+    const MySqlConfig &AppConfig::mysql_config() const
+    {
+        return mysql_config_;
+    }
+
+    const std::string &AppConfig::user_store_type() const
+    {
+        static const std::string kDefaultType = "mysql";
+
+        const auto it = values_.find("storage.user_store");
+        if (it == values_.end())
+        {
+            return kDefaultType;
+        }
+
+        return it->second;
+    }
+    
+    const RedisConfig& AppConfig::redis_config() const
+    {
+        return redis_config_;
+    }
+}

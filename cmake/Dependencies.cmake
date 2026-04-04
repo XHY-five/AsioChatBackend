@@ -1,39 +1,37 @@
-set(_gateserver_default_deps_root "")
+set(_asiochat_default_deps_root "")
 
-if(DEFINED ENV{GATESERVER_DEPS_ROOT} AND NOT "$ENV{GATESERVER_DEPS_ROOT}" STREQUAL "")
-  set(_gateserver_default_deps_root "$ENV{GATESERVER_DEPS_ROOT}")
+if(DEFINED ENV{ASIOCHAT_DEPS_ROOT} AND NOT "$ENV{ASIOCHAT_DEPS_ROOT}" STREQUAL "")
+  set(_asiochat_default_deps_root "$ENV{ASIOCHAT_DEPS_ROOT}")
 elseif(EXISTS "${CMAKE_SOURCE_DIR}/third_party")
-  set(_gateserver_default_deps_root "${CMAKE_SOURCE_DIR}/third_party")
+  set(_asiochat_default_deps_root "${CMAKE_SOURCE_DIR}/third_party")
 elseif(WIN32)
-  set(_gateserver_default_deps_root "E:/cppsoft")
+  set(_asiochat_default_deps_root "E:/cppsoft")
 endif()
 
-set(CPPSOFT_ROOT "${_gateserver_default_deps_root}" CACHE PATH "Root directory of the third-party dependencies")
-set(GRPC_ROOT "${CPPSOFT_ROOT}/grpc" CACHE PATH "gRPC source/prebuilt root")
-set(GRPC_VISUALPRO_ROOT "${GRPC_ROOT}/visualpro" CACHE PATH "gRPC Visual Studio build output root")
+set(CPPSOFT_ROOT "${_asiochat_default_deps_root}" CACHE PATH "Root directory of third-party dependencies")
 set(MYSQL_CONNECTOR_ROOT "${CPPSOFT_ROOT}/mysql-connector" CACHE PATH "MySQL Connector/C++ root")
-set(HIREDIS_ROOT "${CPPSOFT_ROOT}/reids" CACHE PATH "hiredis root")
-set(JSON_ROOT "${CPPSOFT_ROOT}/libjsonmd" CACHE PATH "jsoncpp root")
+
+set(_asiochat_default_hiredis_root "${CPPSOFT_ROOT}/reids")
+if(NOT EXISTS "${_asiochat_default_hiredis_root}" AND EXISTS "${CPPSOFT_ROOT}/hiredis")
+  set(_asiochat_default_hiredis_root "${CPPSOFT_ROOT}/hiredis")
+endif()
+
+set(HIREDIS_ROOT "${HIREDIS_ROOT}" CACHE PATH "hiredis root")
+if(NOT HIREDIS_ROOT OR NOT EXISTS "${HIREDIS_ROOT}")
+  set(HIREDIS_ROOT "${_asiochat_default_hiredis_root}" CACHE PATH "hiredis root" FORCE)
+endif()
+
 set(BOOST_ROOT_LOCAL "${CPPSOFT_ROOT}/boost_1_89_0" CACHE PATH "Boost root")
 
-function(gateserver_require_path path_value hint)
+function(asiochat_require_path path_value hint)
   if(NOT EXISTS "${path_value}")
     message(FATAL_ERROR
       "Missing required dependency path: ${path_value}\n"
       "Hint: ${hint}\n"
-      "You can set GATESERVER_DEPS_ROOT or pass -DCPPSOFT_ROOT=<path> to CMake."
+      "You can set ASIOCHAT_DEPS_ROOT or override the specific *_ROOT cache entry."
     )
   endif()
 endfunction()
-
-if(WIN32)
-  gateserver_require_path("${BOOST_ROOT_LOCAL}" "Place boost_1_89_0 under the dependency root.")
-  gateserver_require_path("${GRPC_ROOT}/include" "Place grpc under the dependency root.")
-  gateserver_require_path("${GRPC_VISUALPRO_ROOT}" "Build or copy the prebuilt grpc Visual Studio outputs under grpc/visualpro.")
-  gateserver_require_path("${MYSQL_CONNECTOR_ROOT}/include" "Place mysql-connector under the dependency root.")
-  gateserver_require_path("${HIREDIS_ROOT}/deps/hiredis" "Place reids under the dependency root.")
-  gateserver_require_path("${JSON_ROOT}/include" "Place libjsonmd under the dependency root.")
-endif()
 
 if(CPPSOFT_ROOT)
   message(STATUS "Using CPPSOFT_ROOT=${CPPSOFT_ROOT}")

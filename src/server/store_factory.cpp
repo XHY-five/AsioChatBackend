@@ -1,44 +1,66 @@
-﻿#include "server/store_factory.hpp"
+#include "asiochat/server/mysql_user_store.hpp"
+#include "asiochat/server/store_factory.hpp"
 
 #include <stdexcept>
 
-namespace asiochat::server {
-namespace {
+namespace asiochat::server
+{
+    std::unique_ptr<OfflineMessageStore> StoreFactory::create_offline_message_store(
+        const std::string &type,
+        const std::string &offline_message_file,
+        const MySqlConfig &mysql_config)
+    {
+        if (type == "none")
+        {
+            return std::make_unique<NullOfflineMessageStore>();
+        }
 
-std::string normalize_backend(std::string backend) {
-    for (char& ch : backend) {
-        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+        if (type == "file")
+        {
+            return std::make_unique<FileOfflineMessageStore>(offline_message_file);
+        }
+
+        if (type == "mysql")
+        {
+            return std::make_unique<MySqlOfflineMessageStore>(mysql_config);
+        }
+        throw std::runtime_error("Unsupported offline message store type: " + type);
     }
-    return backend;
+
+    std::unique_ptr<OnlineStatusStore> StoreFactory::create_online_status_store(const std::string &type)
+    {
+        if (type == "memory")
+        {
+            return std::make_unique<MemoryOnlineStatusStore>();
+        }
+        throw std::runtime_error("Unsupported online status store type: " + type);
+    }
+
+    std::unique_ptr<OnlineStatusStore> StoreFactory::create_online_status_store(const std::string &type,
+                                                                                const RedisConfig &redis_config)
+    {
+        if (type == "memory")
+        {
+            return std::make_unique<MemoryOnlineStatusStore>();
+        }
+
+        if (type == "redis")
+        {
+            return std::make_unique<RedisOnlineStatusStore>(redis_config);
+        }
+
+        throw std::runtime_error("Unsupported online status store type: " + type);
+    }
+    std::unique_ptr<UserStore> StoreFactory::create_user_store(
+        const std::string &type,
+        const MySqlConfig &mysql_config)
+    {
+        if (type == "mysql")
+        {
+            return std::unique_ptr<UserStore>(new MySqlUserStore(mysql_config));
+        }
+
+        throw std::runtime_error("Unsupported user store type: " + type);
+    }
+
 }
-
-}  // namespace
-
-std::shared_ptr<OfflineMessageStore> create_offline_message_store(const AppConfig& config) {
-    const std::string backend = normalize_backend(config.offline_store_backend);
-    if (backend == "mysql") {
-        return std::make_shared<MySqlOfflineMessageStore>(config.mysql);
-    }
-    if (backend == "file") {
-        return std::make_shared<FileOfflineMessageStore>(config.offline_file_path);
-    }
-    if (backend == "none" || backend == "null") {
-        return std::make_shared<NullOfflineMessageStore>();
-    }
-
-    throw std::runtime_error("Unsupported offline store backend: " + config.offline_store_backend);
-}
-
-std::shared_ptr<OnlineStatusStore> create_online_status_store(const AppConfig& config) {
-    const std::string backend = normalize_backend(config.online_store_backend);
-    if (backend == "redis") {
-        return std::make_shared<RedisOnlineStatusStore>(config.redis);
-    }
-    if (backend == "none" || backend == "null") {
-        return std::make_shared<NullOnlineStatusStore>();
-    }
-
-    throw std::runtime_error("Unsupported online status store backend: " + config.online_store_backend);
-}
-
-}  // namespace asiochat::server

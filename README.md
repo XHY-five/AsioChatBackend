@@ -1,9 +1,10 @@
-﻿# AsioChatBackend
+# AsioChat
 
-`AsioChatBackend` 是一个基于 `Boost.Asio` 的跨平台 C++ 聊天后端，支持 `Windows` 和 `Linux`。当前版本支持房间聊天、私聊、MySQL 离线消息、Redis 在线状态，以及可接 `local`、`OpenAI`、`DeepSeek`、`Ollama` 的房间 AI agent。
+AsioChat 是一个基于 C++17 与 Boost.Asio 的命令行聊天室项目，仓库中同时包含客户端与服务端。项目支持多房间聊天、私聊、离线消息、在线状态维护，以及按房间配置的 AI 助手能力。
 
-## 项目亮点
+## 项目简介
 
+<<<<<<< Updated upstream
 - 基于 `Boost.Asio` 实现异步 TCP 服务端和命令行客户端
 - 使用 `4` 字节长度头 + `JSON` 消息体协议处理 TCP 粘包/拆包
 - 支持房间聊天、私聊、在线用户列表、房间列表、心跳保活
@@ -12,69 +13,43 @@
 - 支持为所有房间统一配置一个 AI，也支持按房间单独覆盖
 - AI 回复通过业务线程池异步执行，不阻塞网络线程
 - Windows 控制台已切换到 `UTF-8`，中文消息显示正常
+=======
+服务端通过 TCP 接收带长度头的 JSON 消息帧，负责用户登录、房间切换、消息分发、离线消息存储和在线状态维护。当前实现已经接入 MySQL 用户与离线消息存储、Redis 在线状态存储，并支持通过兼容 OpenAI 风格接口的模型服务生成房间 AI 回复。
+>>>>>>> Stashed changes
 
-## 项目结构
+客户端是一个轻量级的终端程序，主要面向命令行交互场景。它支持注册、登录、切换房间、私聊、心跳保活，以及连接断开和空闲超时后的提示处理。
 
-```text
-.
-|-- CMakeLists.txt
-|-- README.md
-|-- config.example.json
-`-- src
-    |-- client
-    |   |-- chat_client.cpp
-    |   |-- chat_client.hpp
-    |   `-- main.cpp
-    |-- common
-    |   |-- protocol.cpp
-    |   `-- protocol.hpp
-    `-- server
-        |-- app_config.cpp
-        |-- app_config.hpp
-        |-- blocking_queue.hpp
-        |-- business_executor.cpp
-        |-- business_executor.hpp
-        |-- chat_room.cpp
-        |-- chat_room.hpp
-        |-- chat_server.cpp
-        |-- chat_server.hpp
-        |-- chat_session.cpp
-        |-- chat_session.hpp
-        |-- offline_message_store.cpp
-        |-- offline_message_store.hpp
-        |-- online_status_store.cpp
-        |-- online_status_store.hpp
-        |-- room_ai_agent_service.cpp
-        |-- room_ai_agent_service.hpp
-        |-- store_factory.cpp
-        |-- store_factory.hpp
-        |-- thread_pool.cpp
-        |-- thread_pool.hpp
-        `-- main.cpp
-```
+## 目录结构
 
-## 环境要求
+项目按头文件与实现文件分层组织：
 
-你需要准备：
+- `include/asiochat/client/`：客户端对外头文件
+- `include/asiochat/common/`：客户端与服务端共用的协议定义
+- `include/asiochat/server/`：服务端核心模块头文件
+- `src/client/`：客户端实现与入口
+- `src/common/`：公共协议序列化与解析实现
+- `src/server/`：服务端实现与入口
+- `cmake/`：按平台拆分的依赖发现与三方库配置脚本
+- `app.cfg`：本地运行时使用的配置文件
+- `app.example.cfg`：演示用途的配置样例文件
 
-- `CMake 3.16+`
-- 支持 `C++17` 的编译器
-- `Boost`，至少包含 `system` 和 `json`
-- 如果启用 `mysql` 离线存储，需要可访问的 MySQL 服务和 `mysql` 命令行客户端
-- 如果启用 `redis` 在线状态，需要可访问的 Redis 服务和 `redis-cli`
-- 如果启用真实 AI provider，需要本机可用的 `curl`
+## 核心能力
 
-如果 `mysql`、`redis-cli`、`curl` 不在系统 `PATH` 中，也可以在配置文件里写绝对路径。
+- 基于 TCP 的多房间聊天
+- 用户注册、登录与房间切换
+- 公聊与私聊消息分发
+- 离线消息持久化
+- Redis 在线状态维护
+- 可配置的空闲超时检测
+- 房间级 AI 助手欢迎语与自动回复
 
-## 编译方式
+## 构建结构
 
-### Windows
+工程使用 CMake 管理构建，当前拆分为公共模块、客户端核心模块和服务端核心模块，再分别生成 `asiochat_client` 与 `asiochat_server` 可执行文件。依赖发现已按 Windows 与 Linux 分离，便于在不同平台下接入本地三方库目录。
 
-```powershell
-cmake -S . -B build
-cmake --build build --config Debug
-```
+## 配置说明
 
+<<<<<<< Updated upstream
 ### Linux
 
 ```bash
@@ -333,3 +308,6 @@ asiochat:online:alice
 - 如果把 `api_key` 直接写进配置文件，注意不要泄露或提交到 Git
 - 如果 key 已经暴露，建议立刻到 provider 后台旋转并替换
 - Windows 下如果 `build\Debug\asiochat_server.exe` 正在运行，重新编译该目标会因 `LNK1168` 失败，先关掉旧进程再编译
+=======
+仓库中的 `app.cfg` 用于实际运行时读取，`app.example.cfg` 用于展示配置结构和字段含义。演示文件中的数据库口令、Redis 口令和 AI 接口密钥均为占位内容，不对应真实环境。
+>>>>>>> Stashed changes

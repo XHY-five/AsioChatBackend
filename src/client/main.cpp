@@ -1,21 +1,25 @@
-﻿#include "client/chat_client.hpp"
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <WinSock2.h>
+#include <windows.h>
+#endif
 
-#include "common/protocol.hpp"
+#include "asiochat/client/chat_client.hpp"
+#include "asiochat/common/protocol.hpp"
 
 #include <boost/asio.hpp>
 
 #include <cstdlib>
 #include <exception>
 #include <iostream>
+#include <optional>
 #include <string>
 #include <thread>
-
-#ifdef _WIN32
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
-#endif
 
 namespace {
 
@@ -24,6 +28,92 @@ void configure_console_utf8() {
     SetConsoleOutputCP(CP_UTF8);
     SetConsoleCP(CP_UTF8);
 #endif
+}
+
+std::optional<asiochat::protocol::Message> build_client_message(const std::string& line) {
+    using asiochat::protocol::Message;
+
+    if (line.empty()) {
+        return std::nullopt;
+    }
+
+    if (line.rfind("/register ", 0) == 0) {
+        const auto rest = line.substr(10);
+        const auto pos = rest.find(' ');
+        if (pos == std::string::npos) {
+            return std::nullopt;
+        }
+
+        Message msg;
+        msg.type = "register";
+        msg.user = rest.substr(0, pos);
+        msg.password = rest.substr(pos + 1);
+        return msg;
+    }
+
+    if (line.rfind("/login ", 0) == 0) {
+        const auto rest = line.substr(7);
+        const auto pos = rest.find(' ');
+        if (pos == std::string::npos) {
+            return std::nullopt;
+        }
+
+        Message msg;
+        msg.type = "login";
+        msg.user = rest.substr(0, pos);
+        msg.password = rest.substr(pos + 1);
+        return msg;
+    }
+
+    if (line.rfind("/join ", 0) == 0) {
+        Message msg;
+        msg.type = "join_room";
+        msg.room = line.substr(6);
+        return msg;
+    }
+
+    if (line.rfind("/pm ", 0) == 0) {
+        const auto rest = line.substr(4);
+        const auto pos = rest.find(' ');
+        if (pos == std::string::npos) {
+            return std::nullopt;
+        }
+
+        Message msg;
+        msg.type = "private_message";
+        msg.target = rest.substr(0, pos);
+        msg.message = rest.substr(pos + 1);
+        return msg;
+    }
+
+    if (line == "/users") {
+        Message msg;
+        msg.type = "list_users";
+        return msg;
+    }
+
+    if (line == "/rooms") {
+        Message msg;
+        msg.type = "list_rooms";
+        return msg;
+    }
+
+    if (line == "/ping") {
+        Message msg;
+        msg.type = "heartbeat";
+        return msg;
+    }
+
+    if (line == "/quit") {
+        Message msg;
+        msg.type = "quit";
+        return msg;
+    }
+
+    Message msg;
+    msg.type = "chat";
+    msg.message = line;
+    return msg;
 }
 
 }  // namespace
@@ -48,13 +138,14 @@ int main(int argc, char* argv[]) {
         bool requested_quit = false;
         std::string line;
         while (std::getline(std::cin, line)) {
-            const std::string encoded = asiochat::protocol::normalize_client_input(line);
-            if (encoded.empty()) {
+            const auto message = build_client_message(line);
+            if (!message.has_value()) {
+                std::cout << "Invalid input format.\n";
                 continue;
             }
 
-            client->write(encoded);
-            if (asiochat::protocol::trim(line) == "/quit") {
+            client->write(asiochat::protocol::serialize_message(*message));
+            if (message->type == "quit") {
                 requested_quit = true;
                 break;
             }

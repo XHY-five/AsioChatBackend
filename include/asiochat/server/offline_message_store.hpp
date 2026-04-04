@@ -1,27 +1,21 @@
-﻿#pragma once
+#pragma once
+
+#include "asiochat/server/mysql_config.hpp"
 
 #include <filesystem>
 #include <memory>
-#include <mutex>
 #include <string>
 #include <string_view>
 #include <vector>
 
 namespace asiochat::server {
 
+class MySqlOfflineMessageDao;
+
 struct OfflineMessage {
     std::string from;
     std::string to;
     std::string message;
-};
-
-struct MySqlConfig {
-    std::string host{"127.0.0.1"};
-    unsigned int port{3306};
-    std::string user{"root"};
-    std::string password;
-    std::string database{"asiochat"};
-    std::string mysql_executable{"mysql"};
 };
 
 class OfflineMessageStore {
@@ -46,28 +40,22 @@ public:
     std::vector<OfflineMessage> take_private_messages_for(std::string_view user) override;
 
 private:
-    std::vector<OfflineMessage> load_all_messages() const;
-    void save_all_messages(const std::vector<OfflineMessage>& messages) const;
+    std::vector<OfflineMessage> load_all_message() const;
+    void save_all_message(const std::vector<OfflineMessage>& messages) const;
 
     std::filesystem::path storage_path_;
-    mutable std::mutex mutex_;
 };
 
 class MySqlOfflineMessageStore : public OfflineMessageStore {
 public:
-    explicit MySqlOfflineMessageStore(MySqlConfig config);
+    explicit MySqlOfflineMessageStore(const MySqlConfig& config);
+    ~MySqlOfflineMessageStore() override;
 
     void save_private_message(const OfflineMessage& message) override;
     std::vector<OfflineMessage> take_private_messages_for(std::string_view user) override;
 
 private:
-    std::string run_mysql(std::string_view sql, bool select_database) const;
-    static std::string to_hex(std::string_view input);
-    static std::string from_hex(std::string_view input);
-    void ensure_schema();
-
-    MySqlConfig config_;
-    mutable std::mutex mutex_;
+    std::unique_ptr<MySqlOfflineMessageDao> dao_;
 };
 
 }  // namespace asiochat::server

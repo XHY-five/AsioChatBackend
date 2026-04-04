@@ -1,118 +1,133 @@
-﻿cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.21)
 
-project(AsioChatBackend VERSION 1.0.0 LANGUAGES CXX)
+project(AsioChat LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-option(ASIOCHAT_BUILD_CLIENT "Build the chat client" ON)
-set(Boost_USE_STATIC_LIBS OFF)
-set(Boost_NO_BOOST_CMAKE ON)
+option(ASIOCHAT_BUILD_SERVER "Build the chat server executable" ON)
+option(ASIOCHAT_BUILD_CLIENT "Build the chat client executable" ON)
 
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Dependencies.cmake")
-    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Dependencies.cmake)
-
-    if(DEFINED BOOST_ROOT_LOCAL AND EXISTS "${BOOST_ROOT_LOCAL}")
-        set(BOOST_ROOT "${BOOST_ROOT_LOCAL}")
-        set(Boost_ROOT "${BOOST_ROOT_LOCAL}")
-        set(Boost_NO_SYSTEM_PATHS ON)
-        set(BOOST_INCLUDEDIR "${BOOST_ROOT_LOCAL}")
-        set(BOOST_LIBRARYDIR "${BOOST_ROOT_LOCAL}/stage/lib")
-        set(ASIOCHAT_BOOST_RUNTIME_DIR "${BOOST_ROOT_LOCAL}/stage/lib")
-    endif()
+if(MSVC)
+  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+  add_compile_options(/utf-8)
 endif()
 
-if(DEFINED ENV{CONDA_PREFIX})
-    list(PREPEND CMAKE_PREFIX_PATH
-        "$ENV{CONDA_PREFIX}/Library"
-        "$ENV{CONDA_PREFIX}/Library/lib/cmake/Boost-1.82.0"
-    )
-    set(ASIOCHAT_BOOST_RUNTIME_DIR "$ENV{CONDA_PREFIX}/Library/bin")
-endif()
+find_package(Threads REQUIRED)
 
-if(POLICY CMP0167)
-    cmake_policy(SET CMP0167 OLD)
-endif()
-find_package(Boost 1.70 REQUIRED COMPONENTS json)
+include(cmake/Dependencies.cmake)
+include(cmake/ThirdPartyTargets.cmake)
 
-add_library(asiochat_common
-    src/common/protocol.cpp
-    src/server/app_config.cpp
-    src/server/business_executor.cpp
-    src/server/offline_message_store.cpp
-    src/server/online_status_store.cpp
-    src/server/store_factory.cpp
-    src/server/thread_pool.cpp
+set(ASIOCHAT_COMMON_SOURCES
+  src/common/protocol.cpp
+  src/common/boost_json_impl.cpp
 )
+
+set(ASIOCHAT_SERVER_SOURCES
+  src/server/app_config.cpp
+  src/server/business_executor.cpp
+  src/server/chat_room.cpp
+  src/server/chat_server.cpp
+  src/server/chat_session.cpp
+  src/server/mysql_connection_pool.cpp
+  src/server/mysql_offline_message_dao.cpp
+  src/server/mysql_user_dao.cpp
+  src/server/mysql_user_store.cpp
+  src/server/offline_message_store.cpp
+  src/server/online_status_store.cpp
+  src/server/redis_connection_pool.cpp
+  src/server/room_ai_agent_service.cpp
+  src/server/store_factory.cpp
+  src/server/thread_pool.cpp
+)
+
+set(ASIOCHAT_CLIENT_SOURCES
+  src/client/chat_client.cpp
+)
+
+add_library(asiochat_common STATIC ${ASIOCHAT_COMMON_SOURCES})
+add_library(AsioChat::common ALIAS asiochat_common)
 
 target_include_directories(asiochat_common
-    PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/src
-        ${Boost_INCLUDE_DIRS}
+  PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
 )
-
-if(TARGET Boost::headers)
-    target_link_libraries(asiochat_common PUBLIC Boost::headers Boost::json)
-elseif(TARGET Boost::boost)
-    target_link_libraries(asiochat_common PUBLIC Boost::boost Boost::json)
-else()
-    target_link_libraries(asiochat_common PUBLIC Boost::json)
-endif()
-
-if(WIN32)
-    target_compile_definitions(asiochat_common PUBLIC _WIN32_WINNT=0x0A00)
-endif()
 
 target_link_libraries(asiochat_common
+  PUBLIC
+    AsioChat::boost_headers
+)
+
+if(ASIOCHAT_BUILD_SERVER)
+  add_library(asiochat_server_core STATIC ${ASIOCHAT_SERVER_SOURCES})
+  add_library(AsioChat::server_core ALIAS asiochat_server_core)
+
+  target_include_directories(asiochat_server_core
     PUBLIC
-        ws2_32
-)
+      "${CMAKE_CURRENT_SOURCE_DIR}/include"
+  )
 
-function(asiochat_copy_windows_runtime target_name)
-    if(WIN32)
-        if(DEFINED ASIOCHAT_BOOST_RUNTIME_DIR AND EXISTS "${ASIOCHAT_BOOST_RUNTIME_DIR}/boost_json.dll")
-            add_custom_command(TARGET ${target_name} POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    "${ASIOCHAT_BOOST_RUNTIME_DIR}/boost_json.dll"
-                    "$<TARGET_FILE_DIR:${target_name}>"
-            )
-        endif()
-        if(DEFINED ASIOCHAT_BOOST_RUNTIME_DIR AND EXISTS "${ASIOCHAT_BOOST_RUNTIME_DIR}/boost_system.dll")
-            add_custom_command(TARGET ${target_name} POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    "${ASIOCHAT_BOOST_RUNTIME_DIR}/boost_system.dll"
-                    "$<TARGET_FILE_DIR:${target_name}>"
-            )
-        endif()
-    endif()
-endfunction()
-
-add_executable(asiochat_server
-    src/server/main.cpp
-    src/server/chat_server.cpp
-    src/server/chat_room.cpp
-    src/server/room_ai_agent_service.cpp
-    src/server/chat_session.cpp
-)
-
-target_link_libraries(asiochat_server
+  target_link_libraries(asiochat_server_core
+    PUBLIC
+      AsioChat::common
+      Threads::Threads
     PRIVATE
-        asiochat_common
-)
+      AsioChat::server_deps
+  )
 
-asiochat_copy_windows_runtime(asiochat_server)
+  target_compile_definitions(asiochat_server_core
+    PUBLIC
+      UNICODE
+      _UNICODE
+  )
+
+  add_executable(asiochat_server src/server/main.cpp)
+  target_link_libraries(asiochat_server PRIVATE AsioChat::server_core)
+
+  set_target_properties(asiochat_server PROPERTIES
+    VS_DEBUGGER_WORKING_DIRECTORY "$<TARGET_FILE_DIR:asiochat_server>"
+  )
+
+  add_custom_command(TARGET asiochat_server POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/app.cfg"
+            "$<TARGET_FILE_DIR:asiochat_server>/app.cfg"
+    VERBATIM
+  )
+
+  if(WIN32)
+    foreach(dll_file IN LISTS ASIOCHAT_RUNTIME_DLLS)
+      get_filename_component(dll_name "${dll_file}" NAME)
+      add_custom_command(TARGET asiochat_server POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                "${dll_file}"
+                "$<TARGET_FILE_DIR:asiochat_server>/${dll_name}"
+        VERBATIM
+      )
+    endforeach()
+  endif()
+endif()
 
 if(ASIOCHAT_BUILD_CLIENT)
-    add_executable(asiochat_client
-        src/client/main.cpp
-        src/client/chat_client.cpp
-    )
+  add_library(asiochat_client_core STATIC ${ASIOCHAT_CLIENT_SOURCES})
+  add_library(AsioChat::client_core ALIAS asiochat_client_core)
 
-    target_link_libraries(asiochat_client
-        PRIVATE
-            asiochat_common
-    )
+  target_include_directories(asiochat_client_core
+    PUBLIC
+      "${CMAKE_CURRENT_SOURCE_DIR}/include"
+  )
 
-    asiochat_copy_windows_runtime(asiochat_client)
+  target_link_libraries(asiochat_client_core
+    PUBLIC
+      AsioChat::common
+      Threads::Threads
+  )
+
+  if(WIN32)
+    target_link_libraries(asiochat_client_core PUBLIC ws2_32)
+  endif()
+
+  add_executable(asiochat_client src/client/main.cpp)
+  target_link_libraries(asiochat_client PRIVATE AsioChat::client_core)
 endif()

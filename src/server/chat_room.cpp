@@ -1,15 +1,12 @@
-﻿#include "server/chat_room.hpp"
-
-#include "server/chat_session.hpp"
+#include "asiochat/server/chat_room.hpp"
+#include "asiochat/server/chat_session.hpp"
 
 #include <algorithm>
 
 namespace asiochat::server {
 namespace {
-
 constexpr const char* kLobbyRoom = "lobby";
-
-}  // namespace
+}
 
 ChatRoom::ChatRoom() = default;
 
@@ -24,9 +21,7 @@ void ChatRoom::configure_ai_agents(const AppConfig& config) {
     room_ai_welcome_messages_.clear();
 
     for (const auto& [room_name, room_config] : config.room_ai_agents) {
-        if (!room_config.enabled) {
-            continue;
-        }
+        if (!room_config.enabled) continue;
         room_ai_bot_names_[room_name] = room_config.bot_name;
         if (!room_config.welcome_message.empty()) {
             room_ai_welcome_messages_[room_name] = room_config.welcome_message;
@@ -67,21 +62,15 @@ bool ChatRoom::change_room(const ChatSession* session,
     std::lock_guard<std::mutex> lock(mutex_);
 
     const auto current = session_rooms_.find(session);
-    if (current == session_rooms_.end()) {
-        return false;
-    }
+    if (current == session_rooms_.end()) return false;
 
     assigned_room = requested_room.empty() ? kLobbyRoom : requested_room;
     previous_room = current->second;
-    if (previous_room == assigned_room) {
-        return true;
-    }
+    if (previous_room == assigned_room) return true;
 
     if (auto room_it = room_members_.find(previous_room); room_it != room_members_.end()) {
         room_it->second.erase(session);
-        if (room_it->second.empty()) {
-            room_members_.erase(room_it);
-        }
+        if (room_it->second.empty()) room_members_.erase(room_it);
     }
 
     current->second = assigned_room;
@@ -102,9 +91,7 @@ void ChatRoom::leave(const ChatSession* session, std::string& departed_name, std
         departed_room = room_it->second;
         if (auto members = room_members_.find(departed_room); members != room_members_.end()) {
             members->second.erase(session);
-            if (members->second.empty()) {
-                room_members_.erase(members);
-            }
+            if (members->second.empty()) room_members_.erase(members);
         }
         session_rooms_.erase(room_it);
     }
@@ -117,15 +104,10 @@ void ChatRoom::broadcast_to_room(std::string_view room, std::string_view message
     {
         std::lock_guard<std::mutex> lock(mutex_);
         const auto room_it = room_members_.find(std::string(room));
-        if (room_it == room_members_.end()) {
-            return;
-        }
+        if (room_it == room_members_.end()) return;
 
-        recipients.reserve(room_it->second.size());
         for (const ChatSession* member : room_it->second) {
-            if (member == exclude) {
-                continue;
-            }
+            if (member == exclude) continue;
             if (const auto session_it = sessions_.find(member); session_it != sessions_.end()) {
                 recipients.push_back(session_it->second);
             }
@@ -142,14 +124,10 @@ bool ChatRoom::deliver_private(std::string_view target_name, std::string_view me
     {
         std::lock_guard<std::mutex> lock(mutex_);
         const auto target_it = name_index_.find(std::string(target_name));
-        if (target_it == name_index_.end()) {
-            return false;
-        }
+        if (target_it == name_index_.end()) return false;
 
         const auto session_it = sessions_.find(target_it->second);
-        if (session_it == sessions_.end()) {
-            return false;
-        }
+        if (session_it == sessions_.end()) return false;
         recipient = session_it->second;
     }
 
@@ -166,17 +144,11 @@ std::size_t ChatRoom::online_count(std::string_view room) const {
 std::vector<std::string> ChatRoom::room_names() const {
     std::lock_guard<std::mutex> lock(mutex_);
     std::vector<std::string> rooms;
-    rooms.reserve(room_members_.size() + room_ai_bot_names_.size());
     for (const auto& [room, members] : room_members_) {
-        if (!members.empty()) {
-            rooms.push_back(room);
-        }
+        if (!members.empty()) rooms.push_back(room);
     }
-    for (const auto& [room, bot_name] : room_ai_bot_names_) {
-        (void)bot_name;
-        if (std::find(rooms.begin(), rooms.end(), room) == rooms.end()) {
-            rooms.push_back(room);
-        }
+    for (const auto& [room, _] : room_ai_bot_names_) {
+        if (std::find(rooms.begin(), rooms.end(), room) == rooms.end()) rooms.push_back(room);
     }
     std::sort(rooms.begin(), rooms.end());
     return rooms;
@@ -185,9 +157,9 @@ std::vector<std::string> ChatRoom::room_names() const {
 std::vector<std::string> ChatRoom::room_users(std::string_view room) const {
     std::lock_guard<std::mutex> lock(mutex_);
     std::vector<std::string> users;
+
     const auto room_it = room_members_.find(std::string(room));
     if (room_it != room_members_.end()) {
-        users.reserve(room_it->second.size() + 1);
         for (const ChatSession* member : room_it->second) {
             if (const auto name_it = names_.find(member); name_it != names_.end()) {
                 users.push_back(name_it->second);
@@ -225,9 +197,7 @@ std::optional<std::string> ChatRoom::ai_agent_welcome_for_room(std::string_view 
 }
 
 bool ChatRoom::is_ai_enabled_for_room_(std::string_view room) const {
-    if (room_ai_bot_names_.find(std::string(room)) != room_ai_bot_names_.end()) {
-        return true;
-    }
+    if (room_ai_bot_names_.find(std::string(room)) != room_ai_bot_names_.end()) return true;
     return default_room_ai_config_.has_value() && default_room_ai_config_->enabled;
 }
 
@@ -253,11 +223,7 @@ std::optional<std::string> ChatRoom::ai_agent_welcome_for_room_(std::string_view
 
 std::unordered_set<std::string> ChatRoom::configured_ai_bot_names_() const {
     std::unordered_set<std::string> names;
-    names.reserve(room_ai_bot_names_.size() + (default_room_ai_config_.has_value() ? 1u : 0u));
-    for (const auto& [room_name, bot_name] : room_ai_bot_names_) {
-        (void)room_name;
-        names.insert(bot_name);
-    }
+    for (const auto& [_, bot_name] : room_ai_bot_names_) names.insert(bot_name);
     if (default_room_ai_config_.has_value() && default_room_ai_config_->enabled && !default_room_ai_config_->bot_name.empty()) {
         names.insert(default_room_ai_config_->bot_name);
     }
